@@ -14,6 +14,7 @@ export default function ReminderCard({
   reminder,
   onEdit,
   onDelete,
+  onDismiss,
   onSnooze,
   onCancelSnooze,
   settings,
@@ -210,6 +211,25 @@ export default function ReminderCard({
                 style={{ background: "#ef444418", border: "1px solid #ef444433", borderRadius: "8px", color: "#ef4444", cursor: "pointer", padding: "5px 14px", fontSize: "0.82em", fontWeight: 700, fontFamily: "inherit" }}
               >
                 ✕ Cancel Snooze
+              </button>
+            </div>
+          )}
+
+          {/* Dismiss — shown for overdue reminders */}
+          {daysInfo.status === "overdue" && !isSnoozed && (
+            <div style={{ marginTop: "10px" }}>
+              <button
+                onClick={() => onDismiss(reminder.id)}
+                style={{
+                  background: "#ffffff0a", border: "1px solid #ffffff18",
+                  borderRadius: "8px", color: "#888", cursor: "pointer",
+                  padding: "5px 14px", fontSize: "0.82em", fontWeight: 600,
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "#ffffff14"}
+                onMouseLeave={e => e.currentTarget.style.background = "#ffffff0a"}
+              >
+                ✓ Dismiss
               </button>
             </div>
           )}
