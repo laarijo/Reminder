@@ -27,16 +27,16 @@ import {
 import { offsetDateISO, generateId, sanitizeColor, getReminderDateTime } from "./utils.js";
 import { themeTokens }                              from "./styles.js";
 
-// ── Sample data ──────────────────────────────
-const INITIAL_REMINDERS = [
-  { id: generateId(), title: "Team Sprint Review",   description: "Quarterly sprint review with the product team.", date: offsetDateISO(2),  time: "10:00", priority: "High",   recurrence: "None",    snoozeUntil: null },
-  { id: generateId(), title: "Pay Electricity Bill", description: "Last date for online payment.",                  date: offsetDateISO(0),  time: "18:00", priority: "Medium", recurrence: "Monthly", snoozeUntil: null },
-  { id: generateId(), title: "Morning Yoga",         description: "30 mins daily session.",                         date: offsetDateISO(-1), time: "07:00", priority: "Low",    recurrence: "Daily",   snoozeUntil: null },
-];
+// ── Sample data (commented out — app starts empty) ──
+// const INITIAL_REMINDERS = [
+//   { id: generateId(), title: "Team Sprint Review",   description: "Quarterly sprint review with the product team.", date: offsetDateISO(2),  time: "10:00", priority: "High",   recurrence: "None",    snoozeUntil: null },
+//   { id: generateId(), title: "Pay Electricity Bill", description: "Last date for online payment.",                  date: offsetDateISO(0),  time: "18:00", priority: "Medium", recurrence: "Monthly", snoozeUntil: null },
+//   { id: generateId(), title: "Morning Yoga",         description: "30 mins daily session.",                         date: offsetDateISO(-1), time: "07:00", priority: "Low",    recurrence: "Daily",   snoozeUntil: null },
+// ];
 
 export default function App() {
   const [settings,      setSettings]     = useState(DEFAULT_SETTINGS);
-  const [reminders,     setReminders]    = useState(INITIAL_REMINDERS);
+  const [reminders,     setReminders]    = useState([]);
   const [alertingIds,   setAlertingIds]  = useState(new Set());
   const [showForm,      setShowForm]     = useState(false);
   const [showSettings,  setShowSettings] = useState(false);
@@ -48,82 +48,61 @@ export default function App() {
   const [duePopups,     setDuePopups]    = useState([]); // reminders currently popped up as due
 
   // [FIX #3] Map of reminderId → setTimeout handle so we can clear on cancel/delete
-  const snoozeTimers = useRef({});
+  const snoozeTimers   = useRef({});
   // Track which reminders have already fired a due-time notification this session
   const firedDueNotifs = useRef(new Set());
   // Track dismissed reminder IDs (overdue reminders the user has acknowledged)
   const [dismissedIds, setDismissedIds] = useState(new Set());
+  // Mirror of reminders in a ref so tick effects can read current state synchronously
+  const remindersRef    = useRef([]);
+  // Mirror of notifGranted in a ref so setTimeout callbacks can read latest value
+  const notifGrantedRef = useRef(false);
+
+  // Keep refs always current
+  remindersRef.current    = reminders;
+  notifGrantedRef.current = notifGranted;
 
   // ── Notification permission ───────────────
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "granted") setNotifGranted(true);
   }, []);
 
-  // ── Poll every 30 s ──────────────────────
+  // ── Poll every 30 s — only for the due-time watcher ──
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 30_000);
     return () => clearInterval(id);
   }, []);
 
-  // ── Check expired snoozes on every tick ──
+  // ── Due-time watcher — runs every tick ───
   useEffect(() => {
-    const now = Date.now();
-    setReminders(prev => {
-      let changed = false;
-      const next = prev.map(r => {
-        if (r.snoozeUntil && r.snoozeUntil <= now) {
-          changed = true;
-          setAlertingIds(ids => new Set([...ids, r.id]));
-          // Re-show popup so user sees snooze has ended
-          setDuePopups(pops =>
-            pops.find(x => x.id === r.id)
-              ? pops.map(x => x.id === r.id ? { ...x, type: "snoozed" } : x)
-              : [...pops, { ...r, type: "snoozed" }]
-          );
-          return { ...r, snoozeUntil: null };
-        }
-        return r;
-      });
-      return changed ? next : prev;
-    });
-  }, [tick]);
+    const now       = new Date();
+    const WINDOW_MS = 60_000;
 
-  // ── Due-time watcher — fires notification when a reminder's scheduled
-  //    date+time is reached (runs on every tick and on reminders change) ──
-  useEffect(() => {
-    const now  = new Date();
-    const WINDOW_MS = 60_000; // fire if due within the last 60 s
-
-    reminders.forEach(r => {
-      if (!r.date || r.snoozeUntil) return;
-      if (firedDueNotifs.current.has(r.id)) return;
-      if (!r.time) return;
+    remindersRef.current.forEach(r => {
+      if (!r.date || r.snoozeUntil)              return; // skip snoozed
+      if (firedDueNotifs.current.has(r.id))      return; // already fired
+      if (!r.time)                                return; // no specific time
 
       const due   = getReminderDateTime(r.date, r.time);
       const msAgo = now - due;
 
       if (msAgo >= 0 && msAgo <= WINDOW_MS) {
         firedDueNotifs.current.add(r.id);
-
-        // 1) Highlight the card
         setAlertingIds(ids => new Set([...ids, r.id]));
-
-        // 2) In-app popup — always shown regardless of OS permission
-        setDuePopups(prev => prev.find(x => x.id === r.id) ? prev : [...prev, { ...r, type: "due" }]);
-
-        // 3) OS desktop notification (only if permission granted)
-        if (notifGranted) {
+        setDuePopups(prev =>
+          prev.find(x => x.id === r.id) ? prev : [...prev, { ...r, type: "due" }]
+        );
+        if (notifGrantedRef.current) {
           try {
             new Notification("🔔 RemindMe — Due Now!", {
               body: `${r.title}${r.description ? "\n" + r.description : ""}`,
-              icon: "https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f514.png",
-              requireInteraction: true, // keeps it visible until dismissed
+              requireInteraction: true,
             });
           } catch (_) {}
         }
       }
     });
-  }, [tick, reminders, notifGranted]);
+  }, [tick]);
 
   // ── CRUD helpers ──────────────────────────
   const openAddForm = () => { setForm(EMPTY_FORM); setEditId(null); setShowForm(true); };
@@ -179,22 +158,55 @@ export default function App() {
   };
 
   const snoozeReminder = (id, minutes) => {
-    // [FIX #2] Clamp to the advertised 1–60 minute range — no bypass via console
+    // [FIX #2] Clamp to the advertised 1–60 minute range
     const safeMins = Math.min(Math.max(1, Number(minutes) || 1), 60);
     const until    = Date.now() + safeMins * 60_000;
 
+    // Clear firedDueNotifs so the due-watcher doesn't block re-notification
+    firedDueNotifs.current.delete(id);
+
+    // Clear any existing timer for this reminder
+    if (snoozeTimers.current[id]) {
+      clearTimeout(snoozeTimers.current[id]);
+    }
+
+    // Set snoozeUntil and remove from alerting while snoozed
     setReminders(r => r.map(x => x.id === id ? { ...x, snoozeUntil: until } : x));
     setAlertingIds(ids => { const n = new Set(ids); n.delete(id); return n; });
 
-    if (notifGranted) {
-      const reminder = reminders.find(x => x.id === id);
-      // [FIX #3] Store timer ID so it can be cleared on cancel/delete
-      if (snoozeTimers.current[id]) clearTimeout(snoozeTimers.current[id]);
-      snoozeTimers.current[id] = setTimeout(() => {
-        new Notification("🔔 RemindMe", { body: `"${reminder?.title}" — snooze is up!` });
-        delete snoozeTimers.current[id];
-      }, safeMins * 60_000);
-    }
+    // Schedule exact wake-up — fires precisely when snooze expires
+    snoozeTimers.current[id] = setTimeout(() => {
+      delete snoozeTimers.current[id];
+
+      // Snapshot the reminder from the ref at the time of expiry
+      const reminder = remindersRef.current.find(x => x.id === id);
+      if (!reminder) return; // was deleted during snooze
+
+      // 1) Clear snoozeUntil
+      setReminders(prev =>
+        prev.map(r => r.id === id ? { ...r, snoozeUntil: null } : r)
+      );
+
+      // 2) Mark as alerting (highlights the card)
+      setAlertingIds(ids => new Set([...ids, id]));
+
+      // 3) Show in-app popup with type "snoozed"
+      setDuePopups(prev =>
+        prev.find(x => x.id === id)
+          ? prev.map(x => x.id === id ? { ...x, type: "snoozed" } : x)
+          : [...prev, { ...reminder, type: "snoozed" }]
+      );
+
+      // 4) OS notification using ref (no stale closure on notifGranted)
+      if (notifGrantedRef.current) {
+        try {
+          new Notification("😴 RemindMe — Snooze Ended!", {
+            body: `"${reminder.title}" is due now!`,
+            requireInteraction: true,
+          });
+        } catch (_) {}
+      }
+    }, safeMins * 60_000);
   };
 
   const cancelSnooze = id => {
