@@ -13,6 +13,7 @@ import { useState, useEffect, useRef } from "react";
 import ReminderCard   from "./components/ReminderCard.jsx";
 import ReminderForm   from "./components/ReminderForm.jsx";
 import SettingsPanel  from "./components/SettingsPanel.jsx";
+import DueReminderPopup from "./components/DueReminderPopup.jsx";
 
 import {
   DEFAULT_SETTINGS,
@@ -42,12 +43,16 @@ export default function App() {
   const [form,          setForm]         = useState(EMPTY_FORM);
   const [editId,        setEditId]       = useState(null);
   const [notifGranted,  setNotifGranted] = useState(false);
+  const [notifToast,    setNotifToast]   = useState(null); // "enabled" | "denied" | null
   const [tick,          setTick]         = useState(0);
+  const [duePopups,     setDuePopups]    = useState([]); // reminders currently popped up as due
 
   // [FIX #3] Map of reminderId → setTimeout handle so we can clear on cancel/delete
   const snoozeTimers = useRef({});
   // Track which reminders have already fired a due-time notification this session
   const firedDueNotifs = useRef(new Set());
+  // Track dismissed reminder IDs (overdue reminders the user has acknowledged)
+  const [dismissedIds, setDismissedIds] = useState(new Set());
 
   // ── Notification permission ───────────────
   useEffect(() => {
@@ -69,6 +74,12 @@ export default function App() {
         if (r.snoozeUntil && r.snoozeUntil <= now) {
           changed = true;
           setAlertingIds(ids => new Set([...ids, r.id]));
+          // Re-show popup so user sees snooze has ended
+          setDuePopups(pops =>
+            pops.find(x => x.id === r.id)
+              ? pops.map(x => x.id === r.id ? { ...x, type: "snoozed" } : x)
+              : [...pops, { ...r, type: "snoozed" }]
+          );
           return { ...r, snoozeUntil: null };
         }
         return r;
@@ -84,24 +95,31 @@ export default function App() {
     const WINDOW_MS = 60_000; // fire if due within the last 60 s
 
     reminders.forEach(r => {
-      if (!r.date || r.snoozeUntil) return;          // skip snoozed
-      if (firedDueNotifs.current.has(r.id)) return;  // already fired
-      if (!r.time) return;                            // no time set — skip
+      if (!r.date || r.snoozeUntil) return;
+      if (firedDueNotifs.current.has(r.id)) return;
+      if (!r.time) return;
 
-      const due = getReminderDateTime(r.date, r.time);
+      const due   = getReminderDateTime(r.date, r.time);
       const msAgo = now - due;
 
-      // Due time has passed within the notification window
       if (msAgo >= 0 && msAgo <= WINDOW_MS) {
         firedDueNotifs.current.add(r.id);
-        // Highlight the card
+
+        // 1) Highlight the card
         setAlertingIds(ids => new Set([...ids, r.id]));
-        // Fire desktop notification if permission granted
+
+        // 2) In-app popup — always shown regardless of OS permission
+        setDuePopups(prev => prev.find(x => x.id === r.id) ? prev : [...prev, { ...r, type: "due" }]);
+
+        // 3) OS desktop notification (only if permission granted)
         if (notifGranted) {
-          new Notification("🔔 RemindMe", {
-            body: `"${r.title}" is due now!`,
-            icon: "https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f514.png",
-          });
+          try {
+            new Notification("🔔 RemindMe — Due Now!", {
+              body: `${r.title}${r.description ? "\n" + r.description : ""}`,
+              icon: "https://cdn.jsdelivr.net/npm/twemoji@14/assets/72x72/1f514.png",
+              requireInteraction: true, // keeps it visible until dismissed
+            });
+          } catch (_) {}
         }
       }
     });
@@ -147,8 +165,17 @@ export default function App() {
       clearTimeout(snoozeTimers.current[id]);
       delete snoozeTimers.current[id];
     }
-    firedDueNotifs.current.delete(id); // allow re-notification if re-created
+    firedDueNotifs.current.delete(id);
+    setDismissedIds(ids => { const n = new Set(ids); n.delete(id); return n; });
+    setDuePopups(prev => prev.filter(x => x.id !== id));
     setReminders(r => r.filter(x => x.id !== id));
+  };
+
+  // Dismiss an overdue reminder — removes it from view without deleting
+  const dismissReminder = id => {
+    setDismissedIds(ids => new Set([...ids, id]));
+    setAlertingIds(ids => { const n = new Set(ids); n.delete(id); return n; });
+    setDuePopups(prev => prev.filter(x => x.id !== id));
   };
 
   const snoozeReminder = (id, minutes) => {
@@ -179,10 +206,34 @@ export default function App() {
     setReminders(r => r.map(x => x.id === id ? { ...x, snoozeUntil: null } : x));
   };
 
+  // ── Request notification permission with feedback ────
+  const requestNotifPermission = () => {
+    if (!("Notification" in window)) {
+      setNotifToast("unsupported");
+      setTimeout(() => setNotifToast(null), 4000);
+      return;
+    }
+    Notification.requestPermission().then(permission => {
+      if (permission === "granted") {
+        setNotifGranted(true);
+        setNotifToast("enabled");
+        // Fire a test notification so the user sees it works
+        try {
+          new Notification("🔔 RemindMe", { body: "Notifications are now enabled! You'll be alerted when reminders are due." });
+        } catch (_) {}
+      } else {
+        setNotifToast("denied");
+      }
+      setTimeout(() => setNotifToast(null), 4000);
+    });
+  };
+
   const setSetting = (key, val) => setSettings(s => ({ ...s, [key]: val }));
 
-  // ── Sorted list (alerting first, then by datetime) ───
-  const sorted = [...reminders].sort((a, b) => {
+  // Sort: alerting first, then by full datetime. Hide dismissed reminders.
+  const sorted = [...reminders]
+    .filter(r => !dismissedIds.has(r.id))
+    .sort((a, b) => {
     const aa = alertingIds.has(a.id) ? -1 : 0;
     const ba = alertingIds.has(b.id) ? -1 : 0;
     if (aa !== ba) return aa - ba;
@@ -233,11 +284,16 @@ export default function App() {
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           {!notifGranted && (
             <button
-              onClick={() => "Notification" in window && Notification.requestPermission().then(p => setNotifGranted(p === "granted"))}
+              onClick={requestNotifPermission}
               style={{ background: accentColor + "22", border: `1px solid ${accentColor}44`, borderRadius: "10px", color: accentColor, cursor: "pointer", padding: "6px 14px", fontSize: "0.82em", fontWeight: 600 }}
             >
-              Enable Notifications
+              🔔 Enable Notifications
             </button>
+          )}
+          {notifGranted && (
+            <span style={{ fontSize: "0.82em", color: "#22c55e", fontWeight: 600 }}>
+              🔔 Notifications On
+            </span>
           )}
           <button
             onClick={() => setShowSettings(true)}
@@ -276,6 +332,7 @@ export default function App() {
                 isAlerting={alertingIds.has(r.id)}
                 onEdit={openEditForm}
                 onDelete={deleteReminder}
+                onDismiss={dismissReminder}
                 onSnooze={snoozeReminder}
                 onCancelSnooze={cancelSnooze}
               />
@@ -286,6 +343,48 @@ export default function App() {
 
       {showForm     && <ReminderForm form={form} setForm={setForm} onSubmit={submitForm} onClose={() => setShowForm(false)} isEditing={!!editId} settings={settings} />}
       {showSettings && <SettingsPanel settings={settings} setSetting={setSetting} onClose={() => setShowSettings(false)} />}
+
+      {/* ── Notification permission toast ─── */}
+      {notifToast && (
+        <div style={{
+          position: "fixed", bottom: "28px", left: "50%", transform: "translateX(-50%)",
+          zIndex: 2000, borderRadius: "14px", padding: "14px 24px",
+          display: "flex", alignItems: "center", gap: "10px",
+          boxShadow: "0 8px 32px #000c",
+          background: notifToast === "enabled"     ? "#166534"
+                    : notifToast === "denied"       ? "#7f1d1d"
+                    : "#1e3a5f",
+          border: `1px solid ${
+            notifToast === "enabled"     ? "#22c55e55"
+          : notifToast === "denied"       ? "#ef444455"
+          : "#3b82f655"}`,
+          color: "#fff", fontSize: "0.92em", fontWeight: 600,
+          animation: "slideUp 0.3s ease",
+        }}>
+          <style>{`@keyframes slideUp { from { opacity:0; transform:translateX(-50%) translateY(16px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`}</style>
+          {notifToast === "enabled"     && "✅  Notifications enabled! You'll be alerted when reminders are due."}
+          {notifToast === "denied"      && "🚫  Notifications blocked. Enable them in your browser site settings."}
+          {notifToast === "unsupported" && "⚠️  Your browser does not support notifications."}
+        </div>
+      )}
+
+      {/* ── In-app due reminder popups ───── */}
+      {duePopups.map((r, i) => (
+        <DueReminderPopup
+          key={r.id}
+          reminder={r}
+          accentColor={accentColor}
+          stackIndex={i}
+          type={r.type ?? "due"}
+          onDismiss={() => {
+            dismissReminder(r.id);
+          }}
+          onSnooze={(id, mins) => {
+            snoozeReminder(id, mins);
+            setDuePopups(prev => prev.filter(x => x.id !== id));
+          }}
+        />
+      ))}
     </div>
   );
 }
