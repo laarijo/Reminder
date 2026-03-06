@@ -7,6 +7,7 @@
 //  [FIX #6] Only VALID_PRIORITIES / VALID_RECURRENCES values rendered
 // ─────────────────────────────────────────────
 
+import { useState } from "react";
 import Modal  from "./Modal.jsx";
 import Field  from "./Field.jsx";
 import {
@@ -22,6 +23,19 @@ export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditi
   const { accentColor, cardBg } = settings;
   const tokens          = themeTokens(settings.theme);
   const dateSelectStyle = { ...inputStyle(settings), colorScheme: settings.theme };
+  const [errors, setErrors] = useState({});
+
+  const handleSubmit = () => {
+    const newErrors = {};
+    if (!form.title.trim())  newErrors.title = "Title is required.";
+    if (!form.date)          newErrors.date  = "Date is required.";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    setErrors({});
+    onSubmit();
+  };
 
   // Side-by-side date + time layout
   const halfInput = { ...inputStyle(settings), width: "100%", boxSizing: "border-box" };
@@ -37,15 +51,19 @@ export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditi
       {/* Title — [FIX #5] maxLength */}
       <Field label="Title *">
         <input
-          style={inputStyle(settings)}
+          style={{ ...inputStyle(settings), borderColor: errors.title ? "#ef4444" : undefined }}
           value={form.title}
           maxLength={MAX_TITLE_LENGTH}
-          onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+          autoFocus
+          onChange={e => { setForm(f => ({ ...f, title: e.target.value })); setErrors(v => ({ ...v, title: undefined })); }}
           placeholder="e.g. Doctor Appointment"
         />
-        <span style={{ color: tokens.textFaint, fontSize: "0.75em", textAlign: "right" }}>
-          {form.title.length}/{MAX_TITLE_LENGTH}
-        </span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          {errors.title
+            ? <span style={{ color: "#ef4444", fontSize: "0.78em" }}>⚠ {errors.title}</span>
+            : <span />}
+          <span style={{ color: tokens.textFaint, fontSize: "0.75em" }}>{form.title.length}/{MAX_TITLE_LENGTH}</span>
+        </div>
       </Field>
 
       {/* Description — [FIX #5] maxLength */}
@@ -57,7 +75,7 @@ export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditi
           onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
           placeholder="Optional details…"
         />
-        <span style={{ color: tokens.textFaint, fontSize: "0.75em", textAlign: "right" }}>
+        <span style={{ color: tokens.textFaint, fontSize: "0.75em", textAlign: "right", display: "block" }}>
           {form.description.length}/{MAX_DESCRIPTION_LENGTH}
         </span>
       </Field>
@@ -65,29 +83,28 @@ export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditi
       {/* Date + Time — side by side */}
       <Field label="Date & Time *">
         <div style={{ display: "flex", gap: "10px" }}>
-          {/* Date */}
           <div style={{ flex: "1 1 55%" }}>
             <input
               type="date"
-              style={{ ...dateSelectStyle }}
+              style={{ ...dateSelectStyle, borderColor: errors.date ? "#ef4444" : undefined }}
               value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+              onChange={e => { setForm(f => ({ ...f, date: e.target.value })); setErrors(v => ({ ...v, date: undefined })); }}
             />
           </div>
-          {/* Time */}
           <div style={{ flex: "1 1 45%" }}>
             <input
               type="time"
               style={{ ...dateSelectStyle }}
               value={form.time}
               onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
-              placeholder="Optional"
             />
           </div>
         </div>
-        <span style={{ color: tokens.textFaint, fontSize: "0.75em", marginTop: "4px" }}>
-          Time is optional — leave blank for a full-day reminder
-        </span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+          {errors.date
+            ? <span style={{ color: "#ef4444", fontSize: "0.78em" }}>⚠ {errors.date}</span>
+            : <span style={{ color: tokens.textFaint, fontSize: "0.75em" }}>Time is optional — leave blank for a full-day reminder</span>}
+        </div>
       </Field>
 
       {/* Priority — [FIX #6] only VALID_PRIORITIES keys rendered */}
@@ -121,7 +138,7 @@ export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditi
       </Field>
 
       <button
-        onClick={onSubmit}
+        onClick={handleSubmit}
         style={{
           width:        "100%",
           padding:      "12px",

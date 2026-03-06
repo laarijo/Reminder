@@ -138,6 +138,8 @@ export function sanitizeTime(value) {
   const [h, m] = value.split(":").map(Number);
   return (h >= 0 && h <= 23 && m >= 0 && m <= 59) ? value : "";
 }
+/**
+ * [FIX #1] Strict hex-colour validator.
  * Accepts #RGB, #RRGGBB, #RRGGBBAA  (3–8 hex digits after #).
  * Returns `fallback` for anything that doesn't match.
  */

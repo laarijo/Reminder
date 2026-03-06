@@ -9,12 +9,27 @@
 //    6) Snooze / Cancel / Dismiss actions
 // ─────────────────────────────────────────────
 
-import { useState }                        from "react";
+import { useState, useEffect, useRef }              from "react";
 import StatusBadge                         from "./StatusBadge.jsx";
 import { PRIORITY_CONFIG, SNOOZE_OPTIONS } from "../constants.js";
 import { getDaysInfo, formatDate, formatTime, formatReminderTime, sanitizeColor } from "../utils.js";
 import { iconBtnStyle, pillStyle, themeTokens } from "../styles.js";
 import { DEFAULT_SETTINGS }                from "../constants.js";
+
+// Injected once at module level — not duplicated per card instance
+const CARD_STYLES = `
+  @keyframes alertPulse {
+    0%,100% { box-shadow: 0 4px 24px #0008, 0 0 0 0px #f9731688; }
+    50%      { box-shadow: 0 4px 36px #0009, 0 0 0 8px #f9731633; }
+  }
+  @keyframes snoozedPulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+`;
+if (typeof document !== "undefined" && !document.getElementById("remindme-card-styles")) {
+  const tag = document.createElement("style");
+  tag.id = "remindme-card-styles";
+  tag.textContent = CARD_STYLES;
+  document.head.appendChild(tag);
+}
 
 export default function ReminderCard({
   reminder,
@@ -27,6 +42,19 @@ export default function ReminderCard({
   isAlerting,
 }) {
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
+  const snoozeMenuRef = useRef(null);
+
+  // Close snooze dropdown when clicking outside it
+  useEffect(() => {
+    if (!showSnoozeMenu) return;
+    const handler = e => {
+      if (snoozeMenuRef.current && !snoozeMenuRef.current.contains(e.target)) {
+        setShowSnoozeMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showSnoozeMenu]);
 
   const { cardShape, showDaysLeft, showDescription, showPriority } = settings;
 
@@ -42,14 +70,6 @@ export default function ReminderCard({
 
   return (
     <>
-      <style>{`
-        @keyframes alertPulse {
-          0%,100% { box-shadow: 0 4px 24px #0008, 0 0 0 0px #f9731688; }
-          50%      { box-shadow: 0 4px 36px #0009, 0 0 0 8px #f9731633; }
-        }
-        @keyframes snoozedPulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
-      `}</style>
-
       <div
         style={{
           background:    isSnoozed ? cardBg + "bb" : cardBg,
@@ -191,7 +211,7 @@ export default function ReminderCard({
 
               {/* Snooze */}
               {(canSnooze || isAlerting) && (
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative" }} ref={snoozeMenuRef}>
                   <button
                     onClick={() => setShowSnoozeMenu(v => !v)}
                     style={{
