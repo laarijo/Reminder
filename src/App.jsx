@@ -24,7 +24,7 @@ import {
   VALID_RECURRENCES,
 } from "./constants.js";
 
-import { offsetDateISO, generateId, sanitizeColor, getReminderDateTime, sanitizeDate, sanitizeTime } from "./utils.js";
+import { offsetDateISO, generateId, sanitizeColor, getReminderDateTime, sanitizeDate, sanitizeTime, todayISO, validateReminderDateTime } from "./utils.js";
 import { themeTokens }                              from "./styles.js";
 
 // ── Sample data (commented out — app starts empty) ──
@@ -46,6 +46,7 @@ export default function App() {
   const [notifToast,    setNotifToast]   = useState(null); // "enabled" | "denied" | null
   const [tick,          setTick]         = useState(0);
   const [duePopups,     setDuePopups]    = useState([]); // reminders currently popped up as due
+  const [formError,     setFormError]    = useState("");  // date/time validation error for ReminderForm
 
   // [FIX #3] Map of reminderId → setTimeout handle so we can clear on cancel/delete
   const snoozeTimers   = useRef({});
@@ -105,9 +106,10 @@ export default function App() {
   }, [tick]);
 
   // ── CRUD helpers ──────────────────────────
-  const openAddForm = () => { setForm(EMPTY_FORM); setEditId(null); setShowForm(true); };
+  const openAddForm = () => { setForm(EMPTY_FORM); setEditId(null); setFormError(""); setShowForm(true); };
 
   const openEditForm = r => {
+    setFormError("");
     setForm({
       title:       r.title,
       description: r.description,
@@ -131,6 +133,11 @@ export default function App() {
     const safeDate = sanitizeDate(form.date);
     const safeTime = sanitizeTime(form.time);
     if (!safeDate) return; // date is required and must be valid
+
+    // [DATE-FIX] Validate that the reminder is not in the past
+    const dateError = validateReminderDateTime(safeDate, safeTime);
+    if (dateError) { setFormError(dateError); return; }
+    setFormError("");
 
     const safeForm = { ...form, date: safeDate, time: safeTime };
 
@@ -369,7 +376,7 @@ export default function App() {
         )}
       </main>
 
-      {showForm     && <ReminderForm form={form} setForm={setForm} onSubmit={submitForm} onClose={() => setShowForm(false)} isEditing={!!editId} settings={settings} />}
+      {showForm     && <ReminderForm form={form} setForm={setForm} onSubmit={submitForm} onClose={() => { setShowForm(false); setFormError(""); }} isEditing={!!editId} settings={settings} formError={formError} minDate={todayISO()} />}
       {showSettings && <SettingsPanel settings={settings} setSetting={setSetting} onClose={() => setShowSettings(false)} />}
 
       {/* ── Notification permission toast ─── */}

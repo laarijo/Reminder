@@ -19,11 +19,17 @@ import {
 } from "../constants.js";
 import { inputStyle, toggleBtnStyle, themeTokens } from "../styles.js";
 
-export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditing, settings }) {
+export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditing, settings, formError, minDate }) {
   const { accentColor, cardBg } = settings;
   const tokens          = themeTokens(settings.theme);
   const dateSelectStyle = { ...inputStyle(settings), colorScheme: settings.theme };
   const [errors, setErrors] = useState({});
+
+  // Returns current local time as HH:MM — used as min for the time picker on today's date
+  const currentTimeHHMM = () => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  };
 
   const handleSubmit = () => {
     const newErrors = {};
@@ -86,22 +92,26 @@ export default function ReminderForm({ form, setForm, onSubmit, onClose, isEditi
           <div style={{ flex: "1 1 55%" }}>
             <input
               type="date"
-              style={{ ...dateSelectStyle, borderColor: errors.date ? "#ef4444" : undefined }}
+              style={{ ...dateSelectStyle, borderColor: errors.date || formError ? "#ef4444" : undefined }}
               value={form.date}
+              min={minDate}
               onChange={e => { setForm(f => ({ ...f, date: e.target.value })); setErrors(v => ({ ...v, date: undefined })); }}
             />
           </div>
           <div style={{ flex: "1 1 45%" }}>
             <input
               type="time"
-              style={{ ...dateSelectStyle }}
+              style={{ ...dateSelectStyle, borderColor: formError ? "#ef4444" : undefined }}
               value={form.time}
+              min={form.date === minDate ? currentTimeHHMM() : undefined}
               onChange={e => setForm(f => ({ ...f, time: e.target.value }))}
             />
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
-          {errors.date
+          {formError
+            ? <span style={{ color: "#ef4444", fontSize: "0.78em" }}>⚠ {formError}</span>
+            : errors.date
             ? <span style={{ color: "#ef4444", fontSize: "0.78em" }}>⚠ {errors.date}</span>
             : <span style={{ color: tokens.textFaint, fontSize: "0.75em" }}>Time is optional — leave blank for a full-day reminder</span>}
         </div>

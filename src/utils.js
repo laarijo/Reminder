@@ -120,6 +120,43 @@ export function generateId() {
 }
 
 /**
+ * Returns today's date as a YYYY-MM-DD string (local time).
+ */
+export function todayISO() {
+  const d = new Date();
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+/**
+ * Validates that a reminder's date (and optional time) is not in the past.
+ * Returns an error string if invalid, or "" if valid.
+ *
+ * Rules:
+ *  - Date must be today or in the future.
+ *  - If date is today and a time is provided, that time must be strictly after now.
+ */
+export function validateReminderDateTime(dateStr, timeStr) {
+  const today = todayISO();
+  if (!dateStr || dateStr < today) {
+    return "Reminder date must be today or a future date.";
+  }
+  if (dateStr === today && timeStr) {
+    const now = new Date();
+    const [h, m] = timeStr.split(":").map(Number);
+    const selected = new Date();
+    selected.setHours(h, m, 0, 0);
+    if (selected <= now) {
+      return "Reminder time must be in the future for today's date.";
+    }
+  }
+  return "";
+}
+
+/**
  * [V3] Validate a YYYY-MM-DD date string. Returns "" if malformed or invalid.
  */
 export function sanitizeDate(value) {
