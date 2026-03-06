@@ -24,7 +24,7 @@ import {
   VALID_RECURRENCES,
 } from "./constants.js";
 
-import { offsetDateISO, generateId, sanitizeColor, getReminderDateTime } from "./utils.js";
+import { offsetDateISO, generateId, sanitizeColor, getReminderDateTime, sanitizeDate, sanitizeTime } from "./utils.js";
 import { themeTokens }                              from "./styles.js";
 
 // ── Sample data (commented out — app starts empty) ──
@@ -95,7 +95,7 @@ export default function App() {
         if (notifGrantedRef.current) {
           try {
             new Notification("🔔 RemindMe — Due Now!", {
-              body: `${r.title}${r.description ? "\n" + r.description : ""}`,
+              body: `${r.title}${r.description ? "\n" + r.description : ""}`.slice(0, 100), // [V4] truncate
               requireInteraction: true,
             });
           } catch (_) {}
@@ -127,10 +127,17 @@ export default function App() {
     if (!VALID_PRIORITIES.includes(form.priority))    return;
     if (!VALID_RECURRENCES.includes(form.recurrence)) return;
 
+    // [V3] Sanitize date and time before storing — reject malformed values
+    const safeDate = sanitizeDate(form.date);
+    const safeTime = sanitizeTime(form.time);
+    if (!safeDate) return; // date is required and must be valid
+
+    const safeForm = { ...form, date: safeDate, time: safeTime };
+
     setReminders(prev =>
       editId
-        ? prev.map(r => r.id === editId ? { ...form, id: editId, snoozeUntil: r.snoozeUntil } : r)
-        : [...prev, { ...form, id: generateId(), snoozeUntil: null }] // [FIX #4]
+        ? prev.map(r => r.id === editId ? { ...safeForm, id: editId, snoozeUntil: r.snoozeUntil } : r)
+        : [...prev, { ...safeForm, id: generateId(), snoozeUntil: null }] // [FIX #4]
     );
     if (editId) firedDueNotifs.current.delete(editId); // reschedule notification on edit
     setEditId(null);
@@ -201,7 +208,7 @@ export default function App() {
       if (notifGrantedRef.current) {
         try {
           new Notification("😴 RemindMe — Snooze Ended!", {
-            body: `"${reminder.title}" is due now!`,
+            body: `"${reminder.title}" is due now!`.slice(0, 100), // [V4] truncate
             requireInteraction: true,
           });
         } catch (_) {}
@@ -240,7 +247,16 @@ export default function App() {
     });
   };
 
-  const setSetting = (key, val) => setSettings(s => ({ ...s, [key]: val }));
+  // [V1] Whitelist allowed setting keys — prevents arbitrary key injection via DevTools
+  const ALLOWED_SETTING_KEYS = new Set([
+    "theme", "accentColor", "bgColor", "cardBg",
+    "fontStyle", "fontSize", "layout", "cardShape",
+    "showDaysLeft", "showDescription", "showPriority",
+  ]);
+  const setSetting = (key, val) => {
+    if (!ALLOWED_SETTING_KEYS.has(key)) return;
+    setSettings(s => ({ ...s, [key]: val }));
+  };
 
   // Sort: alerting first, then by full datetime. Hide dismissed reminders.
   const sorted = [...reminders]
@@ -263,7 +279,7 @@ export default function App() {
     <div style={{
       minHeight:  "100vh",
       background: bgColor,
-      fontFamily: FONT_MAP[fontStyle],
+      fontFamily: FONT_MAP[fontStyle] ?? FONT_MAP["sans"],  // [V2] guard undefined key
       fontSize:   FONT_SIZE_MAP[fontSize],
       color:      tokens.text,
       transition: "all 0.3s",

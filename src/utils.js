@@ -120,7 +120,24 @@ export function generateId() {
 }
 
 /**
- * [FIX #1] Strict hex-colour validator.
+ * [V3] Validate a YYYY-MM-DD date string. Returns "" if malformed or invalid.
+ */
+export function sanitizeDate(value) {
+  if (typeof value !== "string") return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? "" : value;
+}
+
+/**
+ * [V3] Validate a HH:MM 24-hour time string. Returns "" if malformed or out of range.
+ */
+export function sanitizeTime(value) {
+  if (typeof value !== "string") return "";
+  if (!/^\d{2}:\d{2}$/.test(value)) return "";
+  const [h, m] = value.split(":").map(Number);
+  return (h >= 0 && h <= 23 && m >= 0 && m <= 59) ? value : "";
+}
  * Accepts #RGB, #RRGGBB, #RRGGBBAA  (3–8 hex digits after #).
  * Returns `fallback` for anything that doesn't match.
  */
