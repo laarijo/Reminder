@@ -74,17 +74,9 @@ RemindMe/
 
 **1. Download the project**
 
-Download and extract `RemindMe.zip`, or clone the repository:
 ```bash
 git clone https://github.com/your-username/RemindMe.git
 ```
-
-> **Note for zip users:** After extracting, check your folder structure. If you see `RemindMe/RemindMe/src/` (double-nested), navigate into the inner folder:
-> ```bash
-> cd RemindMe/RemindMe
-> ```
-> If the structure is `RemindMe/src/` (single level), just use:
-> ```bash
 > cd RemindMe
 > ```
 
